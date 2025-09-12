@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitoramento de Água - Arduino</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      background: linear-gradient(135deg, #4facfe, #00f2fe);
+      color: #333;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 15px;
+      box-shadow: 0 8px 15px rgba(0,0,0,0.2);
+      width: 90%;
+      max-width: 800px;
+      text-align: center;
+      transition: background 0.5s;
+      margin-top: 20px;
+    }
+    h1 {
+      color: #0077b6;
+    }
+    .water-data {
+      margin: 20px 0;
+      font-size: 2em;
+      font-weight: bold;
+      color: #023e8a;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 25px;
+      background: #ddd;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .progress {
+      height: 100%;
+      width: 0;
+      background: linear-gradient(90deg, #0077b6, #00b4d8);
+      transition: width 0.5s;
+    }
+    button {
+      background: #00b4d8;
+      color: white;
+      border: none;
+      padding: 12px 25px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.3s, transform 0.2s;
+      margin: 10px;
+      font-size: 1rem;
+    }
+    button:hover {
+      background: #0077b6;
+      transform: scale(1.05);
+    }
+    .alerta {
+      background: #ff4d4d !important;
+      color: white;
+    }
+    .graficos-container {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      grid-gap: 20px;
+      width: 95%;
+      margin-top: 30px;
+    }
+    .grafico-box {
+      background: white;
+      padding: 15px;
+      border-radius: 12px;
+      box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+    }
+    .grafico-box canvas {
+      width: 100% !important;
+      height: 250px !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="painel">
+    <h1>💧 Monitoramento de Água</h1>
+    <p>Quantidade de água gasta:</p>
+    <div class="water-data" id="waterValue">0 L</div>
+
+    <div class="progress-bar">
+      <div class="progress" id="progressBar"></div>
+    </div>
+
+    <p id="status">Clique em "Conectar ao Arduino".</p>
+    <button onclick="connectSerial()">Conectar ao Arduino</button>
+    <button onclick="simular()">Simular Consumo</button>
+    <button onclick="window.location.href='saibamais.html'">Saiba Mais</button>
+
+    <canvas id="waterChart" height="120"></canvas>
+  </div>
+
+  <!-- Gráficos adicionais -->
+  <div class="graficos-container">
+    <div class="grafico-box">
+      <h3>Consumo Diário</h3>
+      <canvas id="graficoDiario"></canvas>
+    </div>
+    <div class="grafico-box">
+      <h3>Consumo Semanal</h3>
+      <canvas id="graficoSemanal"></canvas>
+    </div>
+    <div class="grafico-box">
+      <h3>Consumo Mensal</h3>
+      <canvas id="graficoMensal"></canvas>
+    </div>
+    <div class="grafico-box">
+      <h3>Consumo Anual</h3>
+      <canvas id="graficoAnual"></canvas>
+    </div>
+  </div>
+
+  <script>
+    let consumo = 0;
+    let tempo = 0;
+    const limite = 250;
+    let alertaTocado = false;
+    let simulando = false;
+    let intervalSimulacao;
+
+    const ctx = document.getElementById('waterChart').getContext('2d');
+    const waterChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Consumo de Água (L)',
+          data: [],
+          borderColor: '#0077b6',
+          backgroundColor: 'rgba(0, 183, 255, 0.3)',
+          fill: true,
+          tension: 0.3
+        }]
+      },
+      options: {responsive: true}
+    });
+
+    const graficoDiario = new Chart(document.getElementById('graficoDiario').getContext('2d'), {
+      type: 'bar',
+      data: {labels:['Seg','Ter','Qua','Qui','Sex','Sab','Dom'],datasets:[{label:'Litros/Dia',data:[0,0,0,0,0,0,0],backgroundColor:'#00b4d8'}]},
+      options:{responsive:true}
+    });
+    const graficoSemanal = new Chart(document.getElementById('graficoSemanal').getContext('2d'), {
+      type: 'bar',
+      data:{labels:['Semana 1','Semana 2','Semana 3','Semana 4'],datasets:[{label:'Litros/Semana',data:[0,0,0,0],backgroundColor:'#90e0ef'}]},
+      options:{responsive:true}
+    });
+    const graficoMensal = new Chart(document.getElementById('graficoMensal').getContext('2d'), {
+      type: 'bar',
+      data:{labels:['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'],datasets:[{label:'Litros/Mês',data:Array(12).fill(0),backgroundColor:'#0077b6'}]},
+      options:{responsive:true}
+    });
+    const graficoAnual = new Chart(document.getElementById('graficoAnual').getContext('2d'), {
+      type: 'bar',
+      data:{labels:['2023','2024','2025','2026'],datasets:[{label:'Litros/Ano',data:[0,0,0,0],backgroundColor:'#03045e'}]},
+      options:{responsive:true}
+    });
+
+    function tocarAlerta(){
+      const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+      const osc=audioCtx.createOscillator();
+      const gain=audioCtx.createGain();
+      osc.type='sine';
+      osc.frequency.setValueAtTime(800,audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.2,audioCtx.currentTime);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime+0.5);
+    }
+
+    function atualizarTela(valor){
+      document.getElementById("waterValue").textContent=valor.toFixed(2)+" L";
+      document.getElementById("progressBar").style.width=Math.min(valor*100/limite,100)+"%";
+      const painel=document.getElementById("painel");
+      const status=document.getElementById("status");
+
+      if(valor>=limite){
+        painel.classList.add("alerta");
+        status.textContent="⚠️ Alerta! Consumo acima do limite de "+limite+" L!";
+        if(!alertaTocado){tocarAlerta();alertaTocado=true;}
+      } else {
+        painel.classList.remove("alerta");
+        status.textContent="Dados recebidos ✅";
+        alertaTocado=false;
+      }
+
+      tempo++;
+      waterChart.data.labels.push(tempo+"s");
+      waterChart.data.datasets[0].data.push(valor);
+      waterChart.update();
+    }
+
+    async function connectSerial(){
+      try{
+        const port=await navigator.serial.requestPort();
+        await port.open({baudRate:9600});
+        const decoder=new TextDecoderStream();
+        port.readable.pipeTo(decoder.writable);
+        const reader=decoder.readable.getReader();
+        document.getElementById("status").textContent="Conectado! Aguardando dados...";
+        while(true){
+          const {value,done}=await reader.read();
+          if(done)break;
+          if(value){
+            const numero=parseFloat(value);
+            if(!isNaN(numero)){
+              consumo=numero;
+              atualizarTela(consumo);
+            }
+          }
+        }
+      }catch(err){
+        document.getElementById("status").textContent="Erro: "+err;
+      }
+    }
+
+    function simular(){
+      if(simulando){
+        clearInterval(intervalSimulacao);
+        simulando=false;
+        document.getElementById("status").textContent="Simulação parada";
+      } else {
+        simulando=true;
+        document.getElementById("status").textContent="Simulação rodando...";
+        intervalSimulacao=setInterval(()=>{
+          consumo+=10;
+          atualizarTela(consumo);
+        },1000);
+      }
+    }
+  </script>
+</body>
+</html>
